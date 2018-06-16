@@ -8,8 +8,9 @@ import {
   Output,
   Renderer2
 } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { Subscription, Observable, fromEvent } from 'rxjs';
 import { addStyle, NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
+import { tap, takeUntil, finalize, switchMap, map } from 'rxjs/operators';
 
 export const DefaultCornerButtonStyle = {
   borderColor: 'transparent #00FF00 #00FF00 transparent',
@@ -57,11 +58,43 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.elm = this.eleRef.nativeElement;
-    this.hm = new Hammer(this.btn);
     this.btn = this.createCornerBtn();
-    this.sub$ = this.service
-      .bindResize(this.renderer, this.elm, this.hm, this.resizeComplete)
-      .subscribe();
+    this.hm = new Hammer(this.btn);
+    this.sub$ = this.bindResize().subscribe();
+  }
+
+  bindResize(): Observable<any> {
+    this.hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
+    const panStart$ = fromEvent(this.hm, 'panstart');
+    const panMove$: Observable<HammerInput> = fromEvent(this.hm, 'panmove');
+    const panEnd$ = fromEvent(this.hm, 'panend');
+
+    const addContainerStyle = (pmEvent: HammerInput, boundingClientRect) => {
+      addStyle(this.renderer, this.elm, {
+        height: `${pmEvent.center.y - boundingClientRect.top}px`,
+        width: `${pmEvent.center.x - boundingClientRect.left}px`
+      });
+    };
+
+    const emitResizeComplete = () => {
+      this.resizeComplete.emit({
+        height: this.elm.clientHeight,
+        width: this.elm.clientWidth
+      });
+    };
+
+    const panMoveHanlder = boundingClientRect =>
+      panMove$.pipe(
+        tap(pmEvent => addContainerStyle(pmEvent, boundingClientRect)),
+        takeUntil(panEnd$),
+        finalize(emitResizeComplete)
+      );
+
+    return panStart$.pipe(
+      map(() => this.elm.getBoundingClientRect()),
+      tap(() => this.service.resize$.next()),
+      switchMap(panMoveHanlder)
+    );
   }
 
   private createCornerBtn() {

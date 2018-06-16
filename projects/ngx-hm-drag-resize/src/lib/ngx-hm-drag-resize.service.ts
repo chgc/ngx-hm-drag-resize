@@ -30,7 +30,7 @@ export interface StartPoint {
   providedIn: 'root'
 })
 export class NgxHmDragResizeService {
-  private resize$ = new Subject();
+  resize$ = new Subject();
   private initGoPoint = {
     left: 0,
     top: 0,
@@ -155,46 +155,6 @@ export class NgxHmDragResizeService {
 
   private getDistance({ x, y }) {
     return Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
-  }
-
-  bindResize(
-    _renderer: Renderer2,
-    container: HTMLElement,
-    hm: HammerManager,
-    resizeComplete$: EventEmitter<any>
-  ): Observable<any> {
-    hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
-
-    const panStart$ = fromEvent(hm, 'panstart');
-    const panMove$: Observable<HammerInput> = fromEvent(hm, 'panmove');
-    const panEnd$ = fromEvent(hm, 'panend');
-
-    const addContainerStyle = (pmEvent: HammerInput, boundingClientRect) => {
-      addStyle(_renderer, container, {
-        height: `${pmEvent.center.y - boundingClientRect.top}px`,
-        width: `${pmEvent.center.x - boundingClientRect.left}px`
-      });
-    };
-
-    const emitResizeComplete = () => {
-      resizeComplete$.emit({
-        height: container.clientHeight,
-        width: container.clientWidth
-      });
-    };
-
-    const panMoveHanlder = boundingClientRect =>
-      panMove$.pipe(
-        tap(pmEvent => addContainerStyle(pmEvent, boundingClientRect)),
-        takeUntil(panEnd$),
-        finalize(emitResizeComplete)
-      );
-
-    return panStart$.pipe(
-      map(() => container.getBoundingClientRect()),
-      tap(() => this.resize$.next()),
-      switchMap(panMoveHanlder)
-    );
   }
 }
 
