@@ -9,7 +9,7 @@ import {
   Renderer2
 } from '@angular/core';
 import { Subscription, Observable, fromEvent } from 'rxjs';
-import { addStyle, NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
+import { NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
 import { tap, takeUntil, finalize, switchMap, map } from 'rxjs/operators';
 
 export const DefaultCornerButtonStyle = {
@@ -70,7 +70,7 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
     const panEnd$ = fromEvent(this.hm, 'panend');
 
     const addContainerStyle = (pmEvent: HammerInput, boundingClientRect) => {
-      addStyle(this.renderer, this.elm, {
+      this.service.addStyle(this.renderer, this.elm, {
         height: `${pmEvent.center.y - boundingClientRect.top}px`,
         width: `${pmEvent.center.x - boundingClientRect.left}px`
       });
@@ -99,7 +99,7 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
 
   private createCornerBtn() {
     const btn = this.renderer.createElement('div') as HTMLElement;
-    addStyle(this.renderer, btn, DefaultCornerButtonStyle);
+    this.service.addStyle(this.renderer, btn, DefaultCornerButtonStyle);
     this.renderer.appendChild(this.elm, btn);
     return btn;
   }

@@ -19,151 +19,18 @@ import { finalize, switchMap, takeUntil, tap, map } from 'rxjs/operators';
 </div>
  */
 
-export interface StartPoint {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
 @Injectable({
   providedIn: 'root'
 })
 export class NgxHmDragResizeService {
   resize$ = new Subject();
-  private initGoPoint = {
-    left: 0,
-    top: 0,
-    width: 0,
-    height: 0
-  };
-
-  bindDrag(
+  addStyle(
     _renderer: Renderer2,
     elm: HTMLElement,
-    hm: HammerManager,
-    container: HTMLElement,
-    dragComplete$: EventEmitter<any>
-  ): Observable<any> {
-    if (!container) {
-      return empty();
-    }
-    hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
-
-    const goPoint$ = new BehaviorSubject(this.initGoPoint);
-    const containerZero = container.getBoundingClientRect();
-
-    goPoint$.subscribe(({ left, top }) => {
-      addStyle(_renderer, elm, {
-        left: `${left}px`,
-        top: `${top}px`
-      });
-    });
-
-    const setCursorStyle = start => {
-      if (start) {
-        _renderer.setStyle(elm, 'cursor', '-webkit-grabbing');
-        _renderer.setStyle(elm, 'cursor', 'grabbing');
-      } else {
-        _renderer.setStyle(elm, 'cursor', '-webkit-grab');
-        _renderer.setStyle(elm, 'cursor', 'grab');
-      }
-    };
-
-    const getGoPoint = (startPoint, e) => ({
-      left: startPoint.left + e.deltaX,
-      top: startPoint.top + e.deltaY,
-      width: e.target.offsetWidth,
-      height: e.target.offsetHeight
-    });
-
-    const panEnd$ = fromEvent(hm, 'panend');
-    const panStart$ = fromEvent(hm, 'panstart').pipe(
-      tap(() => setCursorStyle(true)),
-      map(() => ({
-        left: parseFloat(elm.style.left) || 0,
-        top: parseFloat(elm.style.top) || 0
-      }))
-    );
-
-    const withGoPoint = startPoint => obs =>
-      obs.pipe(
-        map(e => getGoPoint(startPoint, e)),
-        map((goPoint: StartPoint) => this.getMovePoint(goPoint, containerZero)),
-        tap((goPoint: StartPoint) => goPoint$.next(goPoint))
-      );
-
-    const dragComplete = () => {
-      dragComplete$.emit({
-        left: goPoint$.getValue().left,
-        top: goPoint$.getValue().top
-      });
-      setCursorStyle(false);
-    };
-
-    const whenMoveActionStop = obs =>
-      obs.pipe(
-        takeUntil(panEnd$),
-        takeUntil(this.resize$),
-        finalize(dragComplete)
-      );
-
-    const setPanMoveAction = startPoint =>
-      fromEvent(hm, 'panmove').pipe(
-        withGoPoint(startPoint),
-        whenMoveActionStop
-      );
-
-    return panStart$.pipe(
-      switchMap(startPoint => setPanMoveAction(startPoint))
-    );
-  }
-
-  private getMovePoint(
-    startPoint: StartPoint,
-    containerZero: ClientRect | DOMRect
+    style: { [key: string]: string | number } = {}
   ) {
-    const getRightBottom = (_startPoint, _containerZero) => {
-      const result = {
-        rightPosition: _startPoint.left + _startPoint.width,
-        bottomPosition: _startPoint.top + _startPoint.height,
-        isOverContainerWidth: false,
-        isOverContainerHeight: false
-      };
-      result.isOverContainerWidth = result.rightPosition > _containerZero.width;
-      result.isOverContainerHeight =
-        result.bottomPosition > _containerZero.height;
-
-      return result;
-    };
-
-    const elmRightBottom = getRightBottom(startPoint, containerZero);
-
-    if (startPoint.left < 0) {
-      startPoint.left = 0;
-    } else if (elmRightBottom.isOverContainerWidth) {
-      startPoint.left = containerZero.width - startPoint.width;
-    }
-
-    if (startPoint.top < 0) {
-      startPoint.top = 0;
-    } else if (elmRightBottom.isOverContainerHeight) {
-      startPoint.top = containerZero.height - startPoint.height;
-    }
-    return startPoint;
+    Object.entries(style).forEach(([key, value]) => {
+      _renderer.setStyle(elm, key, value);
+    });
   }
-
-  private getDistance({ x, y }) {
-    return Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
-  }
-}
-
-export function addStyle(
-  _renderer: Renderer2,
-  elm: HTMLElement,
-  style: { [key: string]: string | number } = {}
-) {
-  Object.entries(style).forEach(([key, value]) => {
-    _renderer.setStyle(elm, key, value);
-  });
 }
