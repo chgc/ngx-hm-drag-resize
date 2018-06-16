@@ -1,9 +1,8 @@
-import { EventEmitter, Injectable, Renderer2, RendererFactory2 } from '@angular/core';
-import { fromEvent, Observable, Subject } from 'rxjs';
-import { finalize, switchMap, take, takeUntil, tap } from 'rxjs/operators';
+import { EventEmitter, Injectable, Renderer2 } from '@angular/core';
+import { fromEvent, Observable, Subject, empty, BehaviorSubject } from 'rxjs';
+import { finalize, switchMap, takeUntil, tap, map } from 'rxjs/operators';
 
 // tslint:disable-next-line:import-blacklist
-
 
 /**
  * Example
@@ -19,170 +18,192 @@ import { finalize, switchMap, take, takeUntil, tap } from 'rxjs/operators';
 
 </div>
  */
+
+export interface StartPoint {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class NgxHmDragResizeService {
-
   private resize$ = new Subject();
-
-  private _renderer: Renderer2;
-
-  constructor(rendererFactory: RendererFactory2) {
-    this._renderer = rendererFactory.createRenderer(null, null);
-  }
+  private initGoPoint = {
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0
+  };
 
   bindDrag(
+    _renderer: Renderer2,
     elm: HTMLElement,
     hm: HammerManager,
     container: HTMLElement,
-    dragComplete: EventEmitter<any>): Observable<any> {
-
+    dragComplete$: EventEmitter<any>
+  ): Observable<any> {
+    if (!container) {
+      return empty();
+    }
     hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
 
-    const panStart$ = fromEvent(hm, 'panstart');
-    const panMove$ = fromEvent(hm, 'panmove');
+    const goPoint$ = new BehaviorSubject(this.initGoPoint);
+    const containerZero = container.getBoundingClientRect();
+
+    goPoint$.subscribe(({ left, top }) => {
+      addStyle(_renderer, elm, {
+        left: `${left}px`,
+        top: `${top}px`
+      });
+    });
+
+    const setCursorStyle = start => {
+      if (start) {
+        _renderer.setStyle(elm, 'cursor', '-webkit-grabbing');
+        _renderer.setStyle(elm, 'cursor', 'grabbing');
+      } else {
+        _renderer.setStyle(elm, 'cursor', '-webkit-grab');
+        _renderer.setStyle(elm, 'cursor', 'grab');
+      }
+    };
+
+    const getGoPoint = (startPoint, e) => ({
+      left: startPoint.left + e.deltaX,
+      top: startPoint.top + e.deltaY,
+      width: e.target.offsetWidth,
+      height: e.target.offsetHeight
+    });
+
     const panEnd$ = fromEvent(hm, 'panend');
+    const panStart$ = fromEvent(hm, 'panstart').pipe(
+      tap(() => setCursorStyle(true)),
+      map(() => ({
+        left: parseFloat(elm.style.left) || 0,
+        top: parseFloat(elm.style.top) || 0
+      }))
+    );
+
+    const withGoPoint = startPoint => obs =>
+      obs.pipe(
+        map(e => getGoPoint(startPoint, e)),
+        map((goPoint: StartPoint) => this.getMovePoint(goPoint, containerZero)),
+        tap((goPoint: StartPoint) => goPoint$.next(goPoint))
+      );
+
+    const dragComplete = () => {
+      dragComplete$.emit({
+        left: goPoint$.getValue().left,
+        top: goPoint$.getValue().top
+      });
+      setCursorStyle(false);
+    };
+
+    const whenMoveActionStop = obs =>
+      obs.pipe(
+        takeUntil(panEnd$),
+        takeUntil(this.resize$),
+        finalize(dragComplete)
+      );
+
+    const setPanMoveAction = startPoint =>
+      fromEvent(hm, 'panmove').pipe(
+        withGoPoint(startPoint),
+        whenMoveActionStop
+      );
 
     return panStart$.pipe(
-      switchMap((p: HammerInput) => {
-        const cursor = elm.style.cursor;
-        // set grabbing
-        this._renderer.setStyle(elm, 'cursor', 'grabbing');
-        this._renderer.setStyle(elm, 'cursor', '-webkit-grabbing');
-        // Get the starting point on pan-start
-        // don't use getBoundingClientRect, because the container maybe has some style on it
-        const startPoint = {
-          left: parseFloat(elm.style.left) || 0,
-          top: parseFloat(elm.style.top) || 0,
-        };
-
-        let containerZero: ClientRect | DOMRect;
-
-        if (container) {
-          containerZero = container.getBoundingClientRect();
-        }
-        let goPoint;
-        // Create observable to handle pan-move and stop on pan-end
-        return panMove$.pipe(
-          tap((e: HammerInput) => {
-
-            goPoint = {
-              left: startPoint.left + e.deltaX,
-              top: startPoint.top + e.deltaY,
-              width: e.target.offsetWidth,
-              height: e.target.offsetHeight
-            };
-
-            if (container) {
-              goPoint = this.getMovePoint(goPoint, containerZero);
-            }
-            addStyle(this._renderer, elm, {
-              left: `${goPoint.left}px`,
-              top: `${goPoint.top}px`
-            });
-          }),
-          takeUntil(panEnd$.pipe(
-            tap(() => {
-              if (goPoint) {
-                dragComplete.emit({
-                  left: goPoint.left,
-                  top: goPoint.top
-                });
-              }
-            })
-          )),
-          // when resize, cancel this event
-          takeUntil(this.resize$),
-          // reset to
-          finalize(() => {
-            this._renderer.setStyle(elm, 'cursor', '-webkit-grab');
-            this._renderer.setStyle(elm, 'cursor', 'grab');
-          })
-        );
-      })
+      switchMap(startPoint => setPanMoveAction(startPoint))
     );
   }
 
   private getMovePoint(
-    startPoint: {
-      left: number;
-      top: number;
-      width: number,
-      height: number
-    },
-    containerZero: ClientRect | DOMRect) {
+    startPoint: StartPoint,
+    containerZero: ClientRect | DOMRect
+  ) {
+    const getRightBottom = (_startPoint, _containerZero) => {
+      const result = {
+        rightPosition: _startPoint.left + _startPoint.width,
+        bottomPosition: _startPoint.top + _startPoint.height,
+        isOverContainerWidth: false,
+        isOverContainerHeight: false
+      };
+      result.isOverContainerWidth = result.rightPosition > _containerZero.width;
+      result.isOverContainerHeight =
+        result.bottomPosition > _containerZero.height;
 
-    const elmRightBottom = {
-      left: startPoint.left + startPoint.width,
-      top: startPoint.top + startPoint.height
+      return result;
     };
+
+    const elmRightBottom = getRightBottom(startPoint, containerZero);
 
     if (startPoint.left < 0) {
       startPoint.left = 0;
-    } else if (elmRightBottom.left > containerZero.width) {
+    } else if (elmRightBottom.isOverContainerWidth) {
       startPoint.left = containerZero.width - startPoint.width;
     }
 
     if (startPoint.top < 0) {
       startPoint.top = 0;
-    } else if (elmRightBottom.top > containerZero.height) {
+    } else if (elmRightBottom.isOverContainerHeight) {
       startPoint.top = containerZero.height - startPoint.height;
     }
     return startPoint;
   }
 
-  private getDistance(goPoint: { x: number; y: number; }) {
-    return Math.sqrt(
-      Math.pow(goPoint.x, 2) + Math.pow(goPoint.y, 2)
-    );
+  private getDistance({ x, y }) {
+    return Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
   }
 
   bindResize(
+    _renderer: Renderer2,
     container: HTMLElement,
     hm: HammerManager,
-    risizeComplete: EventEmitter<any>): Observable<any> {
-
+    resizeComplete$: EventEmitter<any>
+  ): Observable<any> {
     hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
 
     const panStart$ = fromEvent(hm, 'panstart');
-    const panMove$ = fromEvent(hm, 'panmove');
+    const panMove$: Observable<HammerInput> = fromEvent(hm, 'panmove');
     const panEnd$ = fromEvent(hm, 'panend');
 
+    const addContainerStyle = (pmEvent: HammerInput, boundingClientRect) => {
+      addStyle(_renderer, container, {
+        height: `${pmEvent.center.y - boundingClientRect.top}px`,
+        width: `${pmEvent.center.x - boundingClientRect.left}px`
+      });
+    };
+
+    const emitResizeComplete = () => {
+      resizeComplete$.emit({
+        height: container.clientHeight,
+        width: container.clientWidth
+      });
+    };
+
+    const panMoveHanlder = boundingClientRect =>
+      panMove$.pipe(
+        tap(pmEvent => addContainerStyle(pmEvent, boundingClientRect)),
+        takeUntil(panEnd$),
+        finalize(emitResizeComplete)
+      );
+
     return panStart$.pipe(
-      switchMap(() => {
-        // Get the starting point on pan-start
-        const boundingClientRect = container.getBoundingClientRect();
-
-        // because the trigger event is overlapping, stop the resize event when resize start
-        this.resize$.next();
-
-        // Create observable to handle pan-move and stop on pan-end
-        return panMove$.pipe(
-          tap((pmEvent: HammerInput) => {
-            addStyle(this._renderer, container, {
-              height: `${pmEvent.center.y - boundingClientRect.top}px`,
-              width: `${pmEvent.center.x - boundingClientRect.left}px`,
-            });
-          }),
-          takeUntil(panEnd$.pipe(
-            tap(() => risizeComplete.emit({
-              height: container.clientHeight,
-              width: container.clientWidth,
-            }))
-          ))
-        );
-      })
+      map(() => container.getBoundingClientRect()),
+      tap(() => this.resize$.next()),
+      switchMap(panMoveHanlder)
     );
   }
-
 }
 
-export function addStyle(_renderer: Renderer2, elm: HTMLElement, style: { [key: string]: string | number }) {
-  if (style) {
-    Object.keys(style).forEach((key) => {
-      const value = style[key];
-      _renderer.setStyle(elm, key, value);
-    });
-  }
+export function addStyle(
+  _renderer: Renderer2,
+  elm: HTMLElement,
+  style: { [key: string]: string | number } = {}
+) {
+  Object.entries(style).forEach(([key, value]) => {
+    _renderer.setStyle(elm, key, value);
+  });
 }
