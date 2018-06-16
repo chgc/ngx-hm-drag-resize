@@ -7,14 +7,16 @@ import {
   Input,
   OnDestroy,
   Output,
-  Renderer2
+  Renderer2,
+  HostBinding
 } from '@angular/core';
 import {
   Subscription,
   fromEvent,
   Observable,
   BehaviorSubject,
-  empty
+  empty,
+  Subject
 } from 'rxjs';
 import { NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
 import { tap, map, takeUntil, finalize, switchMap } from 'rxjs/operators';
@@ -34,6 +36,7 @@ export class NgxHmDraggableDirective implements AfterViewInit, OnDestroy {
   @Output() dragComplete = new EventEmitter();
 
   private sub$: Subscription;
+  private destory$ = new Subject<boolean>();
 
   private hm: HammerManager;
   private elm: HTMLElement;
@@ -45,20 +48,17 @@ export class NgxHmDraggableDirective implements AfterViewInit, OnDestroy {
     height: 0
   };
 
+  @HostBinding('style.backgroundColor') bgColor: string;
+  @HostBinding('style.left.px') left = 0;
+  @HostBinding('style.top.px') top = 0;
   @HostListener('mouseover')
   mouseover() {
-    if (!this.elm) {
-      return;
-    }
-    this.elm.style.backgroundColor = '#fcfda9';
+    this.bgColor = '#fcfda9';
   }
 
   @HostListener('mouseout')
   mouseout() {
-    if (!this.elm) {
-      return;
-    }
-    this.elm.style.backgroundColor = '';
+    this.bgColor = '';
   }
 
   constructor(
@@ -70,28 +70,22 @@ export class NgxHmDraggableDirective implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     this.elm = this._elm.nativeElement as HTMLElement;
     this.hm = new Hammer(this.elm);
-    this.sub$ = this.bindDrag().subscribe();
+    if (this.container) {
+      this.bindDrag()
+        .pipe(takeUntil(this.destory$))
+        .subscribe();
+    }
   }
 
-  bindDrag(): // _renderer: Renderer2,
-  // elm: HTMLElement,
-  // hm: HammerManager,
-  // container: HTMLElement,
-  // dragComplete$: EventEmitter<any>
-  Observable<any> {
-    if (!this.container) {
-      return empty();
-    }
+  bindDrag(): Observable<any> {
     this.hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
 
     const goPoint$ = new BehaviorSubject(this.initGoPoint);
     const containerZero = this.container.getBoundingClientRect();
 
     goPoint$.subscribe(({ left, top }) => {
-      this._service.addStyle(this._renderer, this.elm, {
-        left: `${left}px`,
-        top: `${top}px`
-      });
+      this.left = left;
+      this.top = top;
     });
 
     const setCursorStyle = start => {
@@ -115,8 +109,8 @@ export class NgxHmDraggableDirective implements AfterViewInit, OnDestroy {
     const panStart$ = fromEvent(this.hm, 'panstart').pipe(
       tap(() => setCursorStyle(true)),
       map(() => ({
-        left: parseFloat(this.elm.style.left) || 0,
-        top: parseFloat(this.elm.style.top) || 0
+        left: this.left || 0,
+        top: this.top || 0
       }))
     );
 
@@ -155,7 +149,7 @@ export class NgxHmDraggableDirective implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.hm.destroy();
-    this.sub$.unsubscribe();
+    this.destory$.next(true);
   }
 
   private getMovePoint(

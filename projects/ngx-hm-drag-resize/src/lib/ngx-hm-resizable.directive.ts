@@ -6,9 +6,10 @@ import {
   HostListener,
   OnDestroy,
   Output,
-  Renderer2
+  Renderer2,
+  HostBinding
 } from '@angular/core';
-import { Subscription, Observable, fromEvent } from 'rxjs';
+import { Subscription, Observable, fromEvent, Subject } from 'rxjs';
 import { NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
 import { tap, takeUntil, finalize, switchMap, map } from 'rxjs/operators';
 
@@ -33,6 +34,10 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
   private hm: HammerManager;
   private btn: HTMLElement;
   private elm;
+  private destory$ = new Subject<boolean>();
+
+  @HostBinding('style.height.px') elmHight;
+  @HostBinding('style.width.px') elmWidth;
 
   @HostListener('mouseover')
   mouseover() {
@@ -60,20 +65,20 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
     this.elm = this.eleRef.nativeElement;
     this.btn = this.createCornerBtn();
     this.hm = new Hammer(this.btn);
-    this.sub$ = this.bindResize().subscribe();
+    this.bindResize()
+      .pipe(takeUntil(this.destory$))
+      .subscribe();
   }
 
-  bindResize(): Observable<any> {
+  private bindResize(): Observable<any> {
     this.hm.get('pan').set({ direction: Hammer.DIRECTION_ALL });
     const panStart$ = fromEvent(this.hm, 'panstart');
     const panMove$: Observable<HammerInput> = fromEvent(this.hm, 'panmove');
     const panEnd$ = fromEvent(this.hm, 'panend');
 
     const addContainerStyle = (pmEvent: HammerInput, boundingClientRect) => {
-      this.service.addStyle(this.renderer, this.elm, {
-        height: `${pmEvent.center.y - boundingClientRect.top}px`,
-        width: `${pmEvent.center.x - boundingClientRect.left}px`
-      });
+      this.elmHight = pmEvent.center.y - boundingClientRect.top;
+      this.elmWidth = pmEvent.center.x - boundingClientRect.left;
     };
 
     const emitResizeComplete = () => {
@@ -106,6 +111,6 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.hm.destroy();
-    this.sub$.unsubscribe();
+    this.destory$.next(true);
   }
 }
