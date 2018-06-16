@@ -11,15 +11,27 @@ import {
 import { Subscription } from 'rxjs';
 import { addStyle, NgxHmDragResizeService } from './ngx-hm-drag-resize.service';
 
+export const DefaultCornerButtonStyle = {
+  borderColor: 'transparent #00FF00 #00FF00 transparent',
+  borderStyle: 'solid solid solid solid',
+  borderWidth: '10px',
+  position: 'absolute',
+  bottom: '0',
+  right: '0',
+  cursor: 'nwse-resize',
+  visibility: 'hidden'
+};
+
 @Directive({
   selector: '[ngx-hm-resizable]'
 })
 export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
-  @Output() risizeComplete = new EventEmitter();
+  @Output() resizeComplete = new EventEmitter();
 
   private sub$: Subscription;
   private hm: HammerManager;
   private btn: HTMLElement;
+  private elm;
 
   @HostListener('mouseover')
   mouseover() {
@@ -38,39 +50,25 @@ export class NgxHmResizableDirective implements AfterViewInit, OnDestroy {
   }
 
   constructor(
-    private _elm: ElementRef,
-    private _renderer: Renderer2,
-    private _service: NgxHmDragResizeService
+    private eleRef: ElementRef,
+    private renderer: Renderer2,
+    private service: NgxHmDragResizeService
   ) {}
 
   ngAfterViewInit(): void {
-    this.createCornerBtn();
+    this.elm = this.eleRef.nativeElement;
     this.hm = new Hammer(this.btn);
-    this.sub$ = this._service
-      .bindResize(
-        this._renderer,
-        this._elm.nativeElement,
-        this.hm,
-        this.risizeComplete
-      )
+    this.btn = this.createCornerBtn();
+    this.sub$ = this.service
+      .bindResize(this.renderer, this.elm, this.hm, this.resizeComplete)
       .subscribe();
   }
 
   private createCornerBtn() {
-    this.btn = this._renderer.createElement('div') as HTMLElement;
-
-    addStyle(this._renderer, this.btn, {
-      borderColor: 'transparent #00FF00 #00FF00 transparent',
-      borderStyle: 'solid solid solid solid',
-      borderWidth: '10px',
-      position: 'absolute',
-      bottom: '0',
-      right: '0',
-      cursor: 'nwse-resize',
-      visibility: 'hidden'
-    });
-
-    this._renderer.appendChild(this._elm.nativeElement, this.btn);
+    const btn = this.renderer.createElement('div') as HTMLElement;
+    addStyle(this.renderer, btn, DefaultCornerButtonStyle);
+    this.renderer.appendChild(this.elm, btn);
+    return btn;
   }
 
   ngOnDestroy(): void {
